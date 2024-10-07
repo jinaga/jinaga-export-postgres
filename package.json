@@ -10,7 +10,7 @@
   },
   "keywords": ["jinaga", "postgres", "export", "cli"],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "dependencies": {
     "pg": "^8.12.0"
   },
