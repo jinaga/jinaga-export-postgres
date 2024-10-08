@@ -99,7 +99,12 @@ npx jinaga-export-postgres --host localhost --port 5432 --database mydb --user m
    npx jinaga-export-postgres ... | jq '[.[] | select(.type == "YourFactType")]'
    ```
 
-4. Extract specific fields:
+4. Find a fact by hash:
+   ```bash
+   npx jinaga-export-postgres ... | jq '.[] | select(.hash == "YourFactHash")'
+   ```
+
+5. Extract specific fields:
    ```bash
    npx jinaga-export-postgres ... | jq '[.[] | {hash: .hash, type: .type}]'
    ```
