@@ -37,7 +37,7 @@ async function main() {
         const facts: FactInformation[] = await fetchFacts(client);
 
         console.log(`Found ${facts.length} facts:`);
-        facts.forEach((fact: any, index: number) => {
+        facts.forEach((fact: FactInformation, index: number) => {
             console.log(`\nFact ${index + 1}:`);
             console.log(JSON.stringify(fact, null, 2));
         });
@@ -96,14 +96,37 @@ async function verifyDatabase(client: Client) {
     `);
 
     if (!tableCheckResult.rows[0].exists) {
-        console.error("Error: 'fact' table does not exist in the database.");
-        process.exit(1);
+        throw new Error("'fact' table does not exist in the database.");
     }
 }
+
 async function fetchFacts(client: Client): Promise<FactInformation[]> {
-    const result = await client.query(`
-        SELECT * FROM fact;
-    `);
-    
-    throw new Error("Function not implemented.");
+    // Query to fetch facts with their types, and extract fields and predecessors from the data JSON
+    const query = `
+        SELECT 
+            f.hash,
+            ft.name AS type,
+            f.data->'fields' AS fields,
+            f.data->'predecessors' AS predecessors
+        FROM fact f
+        JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id;
+    `;
+
+    try {
+        const result = await client.query(query);
+        
+        return result.rows.map(row => {
+            const factInfo: FactInformation = {
+                hash: row.hash,
+                type: row.type,
+                predecessors: row.predecessors,
+                fields: row.fields
+            };
+
+            return factInfo;
+        });
+    } catch (error) {
+        console.error('Error fetching facts:', error);
+        throw error;
+    }
 }
