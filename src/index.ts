@@ -28,22 +28,21 @@ async function main() {
 
     try {
         await client.connect();
-        console.log('Connected to PostgreSQL database');
+        console.error('Connected to PostgreSQL database');
 
-        console.log('Exporting data...');
+        console.error('Exporting data...');
         
         await verifyDatabase(client);
 
         const facts: FactInformation[] = await fetchFacts(client);
 
-        console.log(`Found ${facts.length} facts:`);
-        facts.forEach((fact: FactInformation, index: number) => {
-            console.log(`\nFact ${index + 1}:`);
-            console.log(JSON.stringify(fact, null, 2));
-        });
+        console.error(`Found ${facts.length} facts.`);
+
+        // Write JSON output to stdout
+        process.stdout.write(JSON.stringify(facts, null, 2));
 
         await client.end();
-        console.log('\nDisconnected from PostgreSQL database');
+        console.error('Disconnected from PostgreSQL database');
     } catch (error: unknown) {
         if (error instanceof Error) {
             console.error('Error:', error.message);
