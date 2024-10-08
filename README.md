@@ -32,7 +32,79 @@ Example:
 npx jinaga-export-postgres --host localhost --port 5432 --database myjinagarecords --user myuser --password mypassword
 ```
 
-The tool will connect to the specified PostgreSQL database, check for the existence of the 'fact' table, and if it exists, export all facts from the table. The exported facts will be displayed in the console, formatted as JSON for easy readability.
+The tool will connect to the specified PostgreSQL database, check for the existence of the 'fact' table, and if it exists, export all facts from the table.
+
+## Output Format
+
+The exported data is streamed to stdout in JSON format. The output is an array of fact objects, where each fact object has the following structure:
+
+```json
+{
+  "hash": "string",
+  "type": "string",
+  "predecessors": {
+    "single": {
+      "hash": "string",
+      "type": "string"
+    },
+    "multiple": [
+      {
+        "hash": "string",
+        "type": "string"
+      },
+      {
+        "hash": "string",
+        "type": "string"
+      }
+    ]
+  },
+  "fields": {
+    "key": "value"
+  }
+}
+```
+
+- `hash`: A unique identifier for the fact
+- `type`: The type of the fact
+- `predecessors`: An object containing references to predecessor facts
+  - Each key in the object may contain either a single predecessor or an array of multiple predecessors
+- `fields`: An object containing the fact's data fields
+
+## Working with the Output
+
+### Writing to a File
+
+To save the output to a file, you can use output redirection:
+
+```bash
+npx jinaga-export-postgres --host localhost --port 5432 --database mydb --user myuser --password mypassword > output.json
+```
+
+### Using jq for Processing
+
+[jq](https://stedolan.github.io/jq/) is a lightweight command-line JSON processor. You can pipe the output of jinaga-export-postgres to jq for further processing or formatting:
+
+1. Pretty-print the JSON:
+   ```bash
+   npx jinaga-export-postgres ... | jq '.'
+   ```
+
+2. Count the number of facts:
+   ```bash
+   npx jinaga-export-postgres ... | jq 'length'
+   ```
+
+3. Filter facts by type:
+   ```bash
+   npx jinaga-export-postgres ... | jq '[.[] | select(.type == "YourFactType")]'
+   ```
+
+4. Extract specific fields:
+   ```bash
+   npx jinaga-export-postgres ... | jq '[.[] | {hash: .hash, type: .type}]'
+   ```
+
+Remember to install jq (`sudo apt-get install jq` on Ubuntu or `brew install jq` on macOS) before using these commands.
 
 ## Development
 
