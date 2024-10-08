@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import { Client } from 'pg';
+import { Readable } from 'stream';
+import * as JSONStream from 'jsonstream';
+import Cursor from 'pg-cursor';
 
 interface DatabaseOptions {
     host: string;
@@ -34,12 +37,17 @@ async function main() {
         
         await verifyDatabase(client);
 
-        const facts: FactInformation[] = await fetchFacts(client);
+        const factStream = await streamFacts(client);
 
-        console.error(`Found ${facts.length} facts.`);
+        // Use JSONStream to stringify facts as they come in
+        factStream
+            .pipe(JSONStream.stringify('[', ',', ']'))
+            .pipe(process.stdout);
 
-        // Write JSON output to stdout
-        process.stdout.write(JSON.stringify(facts, null, 2));
+        await new Promise((resolve, reject) => {
+            factStream.on('end', resolve);
+            factStream.on('error', reject);
+        });
 
         await client.end();
         console.error('Disconnected from PostgreSQL database');
@@ -99,8 +107,7 @@ async function verifyDatabase(client: Client) {
     }
 }
 
-async function fetchFacts(client: Client): Promise<FactInformation[]> {
-    // Query to fetch facts with their types, and extract fields and predecessors from the data JSON
+async function streamFacts(client: Client): Promise<Readable> {
     const query = `
         SELECT 
             f.hash,
@@ -108,24 +115,34 @@ async function fetchFacts(client: Client): Promise<FactInformation[]> {
             f.data->'fields' AS fields,
             f.data->'predecessors' AS predecessors
         FROM fact f
-        JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id;
+        JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id
     `;
 
-    try {
-        const result = await client.query(query);
-        
-        return result.rows.map(row => {
-            const factInfo: FactInformation = {
-                hash: row.hash,
-                type: row.type,
-                predecessors: row.predecessors,
-                fields: row.fields
-            };
+    const cursor = client.query(new Cursor(query));
+    const batchSize = 1000;
 
-            return factInfo;
-        });
-    } catch (error) {
-        console.error('Error fetching facts:', error);
-        throw error;
-    }
+    return new Readable({
+        objectMode: true,
+        async read() {
+            try {
+                const rows = await cursor.read(batchSize);
+                if (rows.length === 0) {
+                    this.push(null);
+                    await cursor.close();
+                } else {
+                    for (const row of rows) {
+                        const factInfo: FactInformation = {
+                            hash: row.hash,
+                            type: row.type,
+                            predecessors: row.predecessors,
+                            fields: row.fields
+                        };
+                        this.push(factInfo);
+                    }
+                }
+            } catch (error) {
+                this.destroy(error as Error);
+            }
+        }
+    });
 }
