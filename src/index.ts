@@ -49,9 +49,16 @@ async function main() {
                 factStream.on('end', resolve);
                 factStream.on('error', reject);
             });
+        } else if (options.format === 'factual') {
+            const factStream = await streamFacts(client, writeFactual);
+            factStream.pipe(process.stdout);
+
+            await new Promise((resolve, reject) => {
+                factStream.on('end', resolve);
+                factStream.on('error', reject);
+            });
         } else {
-            // For 'factual' format, we'll implement this later
-            console.error('Factual format not yet implemented');
+            console.error('Invalid format specified');
             process.exit(1);
         }
 
@@ -189,4 +196,28 @@ function stripIdFromFact(fact: FactInformationWithId): FactInformation {
         ...stripped,
         predecessors: strippedPredecessors
     }
+}
+
+function writeFactual(fact: FactInformationWithId): string {
+    let output = `let f${fact.fact_id}: ${fact.type} = {\n`;
+
+    // Output fields
+    for (const [key, value] of Object.entries(fact.fields)) {
+        output += `    ${key}: ${JSON.stringify(value)},\n`;
+    }
+
+    // Output predecessors
+    for (const [key, value] of Object.entries(fact.predecessors)) {
+        if (Array.isArray(value)) {
+            output += `    ${key}: [${value.map(p => `f${p.fact_id}`).join(', ')}],\n`;
+        } else {
+            output += `    ${key}: f${value.fact_id},\n`;
+        }
+    }
+
+    // Remove the trailing comma and newline
+    output = output.slice(0, -2);
+    output += '\n}\n\n';
+
+    return output;
 }
