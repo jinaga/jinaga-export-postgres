@@ -4,7 +4,8 @@ import * as JSONStream from 'jsonstream';
 import { Client } from 'pg';
 import Cursor from 'pg-cursor';
 import { Readable } from 'stream';
-import { createDatabaseClient, parseArgs } from './args';
+import { parseArgs } from './args';
+import { connectToDatabase, disconnectFromDatabase } from './database';
 
 interface PredecessorInformation {
     hash: string;
@@ -30,15 +31,11 @@ interface FactInformationWithId {
 
 async function main() {
     const options = parseArgs();
-    const client = createDatabaseClient(options);
+    let client: Client;
 
     try {
-        await client.connect();
-        console.error('Connected to PostgreSQL database');
-
+        client = await connectToDatabase(options);
         console.error('Exporting data...');
-        
-        await verifyDatabase(client);
 
         if (options.format === 'json') {
             const factStream = await streamFacts(client, stripIdFromFact);
@@ -58,8 +55,7 @@ async function main() {
             process.exit(1);
         }
 
-        await client.end();
-        console.error('Disconnected from PostgreSQL database');
+        await disconnectFromDatabase(client);
     } catch (error: unknown) {
         if (error instanceof Error) {
             console.error('Error:', error.message);
@@ -71,21 +67,6 @@ async function main() {
 }
 
 main();
-
-async function verifyDatabase(client: Client) {
-    // Check if the 'fact' table exists
-    const tableCheckResult = await client.query(`
-        SELECT EXISTS (
-            SELECT FROM information_schema.tables 
-            WHERE table_schema = 'public'
-            AND table_name = 'fact'
-        );
-    `);
-
-    if (!tableCheckResult.rows[0].exists) {
-        throw new Error("'fact' table does not exist in the database.");
-    }
-}
 
 async function streamFacts<T>(client: Client, map: (fact: FactInformationWithId) => T): Promise<Readable> {
     const query = `
