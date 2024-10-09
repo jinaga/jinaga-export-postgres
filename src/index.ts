@@ -104,10 +104,10 @@ async function streamFacts<T>(client: Client, map: (fact: FactInformationWithId)
             ft.name AS type,
             f.data->'fields' AS fields,
             f.data->'predecessors' AS predecessors,
-            ap.predecessor_array
+            COALESCE(ap.predecessor_array, '{}'::jsonb) AS predecessor_array
         FROM fact f
         JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id
-        JOIN aggregated_predecessors ap ON ap.successor_fact_id = f.fact_id
+        LEFT JOIN aggregated_predecessors ap ON ap.successor_fact_id = f.fact_id
     `;
 
     const cursor = client.query(new Cursor(query));
