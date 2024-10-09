@@ -14,11 +14,13 @@ interface DatabaseOptions {
 }
 
 interface PredecessorInformation {
+    fact_id: number;
     hash: string;
     type: string;
 }
 
 interface FactInformation {
+    fact_id: number;
     hash: string;
     type: string;
     predecessors: { [key: string]: PredecessorInformation | PredecessorInformation[] };
@@ -109,13 +111,37 @@ async function verifyDatabase(client: Client) {
 
 async function streamFacts(client: Client): Promise<Readable> {
     const query = `
-        SELECT 
+        WITH predecessor AS (
+            SELECT
+                f.fact_id,
+                f.hash,
+                ft.name AS type,
+                e.successor_fact_id
+            FROM fact f
+            JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id
+            JOIN edge e ON e.predecessor_fact_id = f.fact_id
+        ),
+        aggregated_predecessors AS (
+            SELECT
+                successor_fact_id,
+                jsonb_agg(jsonb_build_object(
+                    'hash', hash,
+                    'type', type,
+                    'fact_id', fact_id
+                )) AS predecessor_array
+            FROM predecessor
+            GROUP BY successor_fact_id
+        )
+        SELECT
+            f.fact_id,
             f.hash,
             ft.name AS type,
             f.data->'fields' AS fields,
-            f.data->'predecessors' AS predecessors
+            f.data->'predecessors' AS predecessors,
+            ap.predecessor_array
         FROM fact f
         JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id
+        JOIN aggregated_predecessors ap ON ap.successor_fact_id = f.fact_id
     `;
 
     const cursor = client.query(new Cursor(query));
@@ -132,12 +158,45 @@ async function streamFacts(client: Client): Promise<Readable> {
                 } else {
                     for (const row of rows) {
                         const factInfo: FactInformation = {
+                            fact_id: row.fact_id,
                             hash: row.hash,
                             type: row.type,
                             predecessors: row.predecessors,
                             fields: row.fields
                         };
-                        this.push(factInfo);
+                        const predecessorArray = row.predecessor_array as PredecessorInformation[];
+                        let allPredecessorsFound = true;
+    
+                        // Replace each predecessor object with the corresponding object from predecessorArray.
+                        for (const key in factInfo.predecessors) {
+                            const predecessor = factInfo.predecessors[key];
+                            if (Array.isArray(predecessor)) {
+                                let newPredecessor: PredecessorInformation[] = [];
+                                for (const p of predecessor) {
+                                    const found = findPredecessor(predecessorArray, p);
+                                    if (found) {
+                                        newPredecessor.push(found);
+                                    } else {
+                                        allPredecessorsFound = false;
+                                        break;
+                                    }
+                                }
+                                if (!allPredecessorsFound) break;
+                                factInfo.predecessors[key] = newPredecessor;
+                            } else {
+                                const found = findPredecessor(predecessorArray, predecessor);
+                                if (found) {
+                                    factInfo.predecessors[key] = found;
+                                } else {
+                                    allPredecessorsFound = false;
+                                    break;
+                                }
+                            }
+                        }
+    
+                        if (allPredecessorsFound) {
+                            this.push(factInfo);
+                        }
                     }
                 }
             } catch (error) {
@@ -145,4 +204,8 @@ async function streamFacts(client: Client): Promise<Readable> {
             }
         }
     });
+}
+
+function findPredecessor(predecessorArray: PredecessorInformation[], p: PredecessorInformation): PredecessorInformation | undefined {
+    return predecessorArray.find(pa => pa.type === p.type && pa.hash === p.hash);
 }
