@@ -108,6 +108,7 @@ async function streamFacts<T>(client: Client, map: (fact: FactInformationWithId)
         FROM fact f
         JOIN fact_type ft ON f.fact_type_id = ft.fact_type_id
         LEFT JOIN aggregated_predecessors ap ON ap.successor_fact_id = f.fact_id
+        ORDER BY f.fact_id
     `;
 
     const cursor = client.query(new Cursor(query));
