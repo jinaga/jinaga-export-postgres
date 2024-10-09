@@ -11,19 +11,28 @@ interface DatabaseOptions {
     database: string;
     user: string;
     password: string;
+    format: string;
 }
 
 interface PredecessorInformation {
-    fact_id: number;
     hash: string;
     type: string;
 }
 
+type PredecessorInformationWithId = PredecessorInformation & { fact_id: number };
+
 interface FactInformation {
-    fact_id: number;
     hash: string;
     type: string;
     predecessors: { [key: string]: PredecessorInformation | PredecessorInformation[] };
+    fields: { [key: string]: string | number | boolean | null };
+}
+
+interface FactInformationWithId {
+    fact_id: number;
+    hash: string;
+    type: string;
+    predecessors: { [key: string]: PredecessorInformationWithId | PredecessorInformationWithId[] };
     fields: { [key: string]: string | number | boolean | null };
 }
 
@@ -39,17 +48,23 @@ async function main() {
         
         await verifyDatabase(client);
 
-        const factStream = await streamFacts(client);
+        if (options.format === 'json') {
+            const factStream = await streamFacts(client, stripIdFromFact);
 
-        // Use JSONStream to stringify facts as they come in
-        factStream
-            .pipe(JSONStream.stringify('[', ',', ']'))
-            .pipe(process.stdout);
+            // Use JSONStream to stringify facts as they come in
+            factStream
+                .pipe(JSONStream.stringify('[', ',', ']'))
+                .pipe(process.stdout);
 
-        await new Promise((resolve, reject) => {
-            factStream.on('end', resolve);
-            factStream.on('error', reject);
-        });
+            await new Promise((resolve, reject) => {
+                factStream.on('end', resolve);
+                factStream.on('error', reject);
+            });
+        } else {
+            // For 'factual' format, we'll implement this later
+            console.error('Factual format not yet implemented');
+            process.exit(1);
+        }
 
         await client.end();
         console.error('Disconnected from PostgreSQL database');
@@ -67,8 +82,8 @@ main();
 
 function parseArgs(): DatabaseOptions {
     const args = process.argv.slice(2);
-    if (args.length !== 10 || args.some((arg, index) => index % 2 === 0 && !arg.startsWith('--'))) {
-        console.error('Usage: jinaga-export-postgres --host <host> --port <port> --database <database> --user <user> --password <password>');
+    if (args.length !== 12 || args.some((arg, index) => index % 2 === 0 && !arg.startsWith('--'))) {
+        console.error('Usage: jinaga-export-postgres --host <host> --port <port> --database <database> --user <user> --password <password> --format <json|factual>');
         process.exit(1);
     }
 
@@ -76,6 +91,11 @@ function parseArgs(): DatabaseOptions {
     for (let i = 0; i < args.length; i += 2) {
         const key = args[i].slice(2) as keyof DatabaseOptions;
         options[key] = args[i + 1];
+    }
+
+    if (options.format !== 'json' && options.format !== 'factual') {
+        console.error('Invalid format. Use either "json" or "factual".');
+        process.exit(1);
     }
 
     return options as DatabaseOptions;
@@ -109,7 +129,7 @@ async function verifyDatabase(client: Client) {
     }
 }
 
-async function streamFacts(client: Client): Promise<Readable> {
+async function streamFacts<T>(client: Client, map: (fact: FactInformationWithId) => T): Promise<Readable> {
     const query = `
         WITH predecessor AS (
             SELECT
@@ -157,21 +177,21 @@ async function streamFacts(client: Client): Promise<Readable> {
                     await cursor.close();
                 } else {
                     for (const row of rows) {
-                        const factInfo: FactInformation = {
+                        const factInfo: FactInformationWithId = {
                             fact_id: row.fact_id,
                             hash: row.hash,
                             type: row.type,
                             predecessors: row.predecessors,
                             fields: row.fields
                         };
-                        const predecessorArray = row.predecessor_array as PredecessorInformation[];
+                        const predecessorArray = row.predecessor_array as PredecessorInformationWithId[];
                         let allPredecessorsFound = true;
     
                         // Replace each predecessor object with the corresponding object from predecessorArray.
                         for (const key in factInfo.predecessors) {
                             const predecessor = factInfo.predecessors[key];
                             if (Array.isArray(predecessor)) {
-                                let newPredecessor: PredecessorInformation[] = [];
+                                let newPredecessor: PredecessorInformationWithId[] = [];
                                 for (const p of predecessor) {
                                     const found = findPredecessor(predecessorArray, p);
                                     if (found) {
@@ -195,7 +215,7 @@ async function streamFacts(client: Client): Promise<Readable> {
                         }
     
                         if (allPredecessorsFound) {
-                            this.push(factInfo);
+                            this.push(map(factInfo));
                         }
                     }
                 }
@@ -206,6 +226,28 @@ async function streamFacts(client: Client): Promise<Readable> {
     });
 }
 
-function findPredecessor(predecessorArray: PredecessorInformation[], p: PredecessorInformation): PredecessorInformation | undefined {
+function findPredecessor(predecessorArray: PredecessorInformationWithId[], p: PredecessorInformationWithId): PredecessorInformationWithId | undefined {
     return predecessorArray.find(pa => pa.type === p.type && pa.hash === p.hash);
+}
+
+function stripIdFromPredecessor(predecessor: PredecessorInformationWithId): PredecessorInformation {
+    const { fact_id, ...stripped } = predecessor;
+    return stripped;
+}
+
+function stripIdFromFact(fact: FactInformationWithId): FactInformation {
+    const { fact_id, predecessors, ...stripped } = fact;
+    const strippedPredecessors: { [key: string]: PredecessorInformation | PredecessorInformation[] } = {};
+    for (const key in predecessors) {
+        const predecessor = predecessors[key];
+        if (Array.isArray(predecessor)) {
+            strippedPredecessors[key] = predecessor.map(stripIdFromPredecessor);
+        } else {
+            strippedPredecessors[key] = stripIdFromPredecessor(predecessor);
+        }
+    }
+    return {
+        ...stripped,
+        predecessors: strippedPredecessors
+    }
 }
