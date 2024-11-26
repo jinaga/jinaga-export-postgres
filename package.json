@@ -25,7 +25,7 @@
     "ts-node": "^10.9.1"
   },
   "bin": {
-    "jinaga-export-postgres": "./dist/index.js"
+    "jinaga-export-postgres": "dist/index.js"
   },
   "engines": {
     "node": ">=14.0.0"

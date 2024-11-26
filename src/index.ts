@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import * as JSONStream from 'jsonstream';
 import { Client } from 'pg';
 import Cursor from 'pg-cursor';
